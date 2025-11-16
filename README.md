@@ -124,7 +124,4 @@ Powered by Lingo.dev, OpenAI, FastAPI, and React, it provides real-time translat
 Pull requests welcome!
 Please open an issue first if you'd like to suggest big changes.
 
-📄 License
-
-This project is open-source under the MIT License.
 
