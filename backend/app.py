@@ -11,7 +11,6 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import httpx
-import openai
 from dotenv import load_dotenv
 
 # optional TTS
@@ -25,7 +24,7 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
 
 LINGO_API_KEY = os.getenv("LINGO_API_KEY", "")
 LINGO_PROJECT_ID = os.getenv("LINGO_PROJECT_ID", "")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 
 BASE_DIR = os.path.dirname(__file__)
 DB_PATH = os.getenv("DB_PATH", os.path.join(BASE_DIR, "reminders.db"))
@@ -93,37 +92,72 @@ async def call_lingo_translate(text: str, target: str) -> str | None:
         return None
     return None
 
-def openai_translate(text: str, target: str) -> str:
-    if not OPENAI_API_KEY:
-        raise RuntimeError("OpenAI key not configured.")
-    
-    from openai import OpenAI
-    client = OpenAI(api_key=OPENAI_API_KEY)
+async def groq_translate(text: str, target: str) -> str:
+    if not GROQ_API_KEY:
+        raise RuntimeError("Groq API key not configured.")
     
     language_names = {
         "hi": "Hindi", "ta": "Tamil", "te": "Telugu", "bn": "Bengali",
         "es": "Spanish", "fr": "French", "ar": "Arabic", "en": "English"
     }
     target_name = language_names.get(target, target)
+    
     prompt = (
         f"You are a translator writing for elderly users. Translate the text below into {target_name}. "
-        "Use short, clear sentences and easy words.\n\n"
+        "Use short, clear sentences and easy words. Return ONLY the translation, nothing else.\n\n"
         f"Text: {text}\n\nTranslation:"
     )
     
     try:
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "You are a helpful translator."},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.2,
-            max_tokens=400
-        )
-        return response.choices[0].message.content.strip()
+        headers = {
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        
+        # Try multiple models in case some are deprecated
+        models_to_try = [
+            "llama-3.2-90b-text-preview",  # Latest Llama 3.2
+            "llama-3.2-11b-text-preview",  # Smaller Llama 3.2
+            "llama-3.1-8b-instant",  # Llama 3.1 instant
+            "gemma2-9b-it",  # Google's Gemma 2
+            "llama3-70b-8192",  # Older but might still work
+        ]
+        
+        for model in models_to_try:
+            payload = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": "You are a helpful translator. Respond only with the translation."},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.2,
+                "max_tokens": 400
+            }
+            
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    json=payload,
+                    headers=headers
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    print(f"Groq: Successfully used model {model}")
+                    return data["choices"][0]["message"]["content"].strip()
+                elif "model_decommissioned" in response.text:
+                    print(f"Groq: Model {model} is decommissioned, trying next...")
+                    continue
+                else:
+                    print(f"Groq: Model {model} failed with: {response.status_code}")
+                    continue
+        
+        # If all models fail
+        raise RuntimeError(f"All Groq models failed. Last error: {response.text}")
+        
+                
     except Exception as e:
-        raise RuntimeError(f"OpenAI translation failed: {str(e)}")
+        raise RuntimeError(f"Groq translation failed: {str(e)}")
 
 def speak_text_in_background(text: str):
     if not TTS_AVAILABLE:
@@ -154,10 +188,10 @@ async def translate(req: TranslateRequest):
     # Try Lingo.dev first
     translation = await call_lingo_translate(text, target)
     
-    # If Lingo fails, try OpenAI
+    # If Lingo fails, try Groq
     if not translation:
         try:
-            translation = openai_translate(text, target)
+            translation = await groq_translate(text, target)
         except Exception as exc:
             # If both fail, provide a demo translation
             print(f"Translation error: {exc}")
