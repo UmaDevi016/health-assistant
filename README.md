@@ -118,10 +118,11 @@ docker run -p 8000:8000 health-assistant
 
 🏆 Hackathon Pitch
 “Our Multilingual Health Assistant empowers seniors by breaking language barriers in healthcare.
-Powered by Lingo.dev, OpenAI, FastAPI, and React, it provides real-time translation, reminders, emergency help, and voice output — making healthcare information accessible to everyone.”
+Powered by Lingo.dev, OpenAI, FastAPI, and React, it provides real-time translation, reminders, emergency help, and voice output making healthcare information accessible to everyone.”
 
 🤝 Contribution
 Pull requests welcome!
 Please open an issue first if you'd like to suggest big changes.
+
 
 
